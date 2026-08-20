@@ -1,0 +1,221 @@
+---
+title: "Spurious Bistability in a Nonlinear Size-Spectrum Population Model"
+author: "Sami Aden"
+date: "2026-08-20"
+draft: true
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: flatly
+    code-fold: true
+description: "Draft final report. Four claims were re-examined under tightened numerical settings: two candidate bifurcations and a third apparent gap in a cycling region all turned out to be artefacts (loose convergence tolerance, or a single-phase snapshot of one limit cycle misread as two); a fourth claim, a unimodal-to-bimodal shift in the steady-state biomass flux, held up in substance but required correcting a comparison state wrongly assumed to be static."
+---
+
+## 1. Introduction
+
+Size-spectrum models describe a population not as a single scalar (total biomass, or abundance) but as a density $n(w,t)$ over individual body mass $w$, evolving under a McKendrick-von Foerster-type transport equation. Unlike a linear age-structured model, the transport velocity here, the growth rate $g(w,t)$, is not prescribed; it is *derived* at every instant from how much food an individual of mass $w$ manages to find, which itself depends on the density of everything smaller that it preys on. This closes a feedback loop between the solution and its own dynamics, and it is this nonlinearity that makes the stability of a size-spectrum steady state a genuine question rather than a foregone conclusion.
+
+Related theoretical work on this class of equation has proposed that concentrated self-interaction can destabilise a fixed point and produce a limit cycle (Datta, Delius & Law, 2011); this report does not re-derive or directly verify their specific results, and leans on that literature only as motivation, not as a baseline the numerical results below are measured against. What is directly relevant here is simpler: real populations are typically subject to at least two simultaneous nonlinear feedbacks, not one. In the model studied here, cannibalism (self-predation, strength $\theta$) and competition for a shared background resource (strength $\rho$, this project's `interaction_resource`) act together, and either can be modulated further by external forcing through fishing effort.
+
+This report set out to ask, numerically, on a size-spectrum model calibrated to anchovy: does a *pair* of coupled nonlinear feedbacks produce a single stability boundary, as one feedback alone can, or something richer, such as multiple coexisting stable states, folds, hysteresis? The model's customised resource dynamics (Section 2.3) rule out an analytical linearisation with the tools available here, so the question was addressed by direct numerical simulation, with stability and multistability established by explicit, repeatable tests (Section 2.4) rather than by inspection. Two candidate answers emerged: a fold under fishing effort at fixed $\theta$, and a fold that appeared to *cross* itself when $\theta$ was swept directly. Neither survived a tightened version of the same test. What this report demonstrates instead is why both looked convincing under the project's default numerical settings, and what it took to show neither was real (Section 3).
+
+## 2. Methods
+
+### 2.1 Governing equation
+
+The model tracks a single species' abundance density $n(w,t)$ via
+
+$$\frac{\partial n(w,t)}{\partial t} = -\frac{\partial}{\partial w}\Big[g(w,t)\,n(w,t)\Big] - \mu(w,t)\,n(w,t),$$
+
+a continuity equation in which individuals move continuously toward larger $w$ at rate $g(w,t)$ and leave the population at rate $\mu(w,t)$ per unit abundance.
+
+### 2.2 Growth, cannibalism and resource competition
+
+Growth is derived from encountered food rather than imposed directly. A predator of mass $w$ searches at rate $\gamma(w)$ and encounters prey (both conspecifics and the background resource) weighted by a predation kernel $\phi(w/w')$, taken here to be uniform over a fixed predator:prey mass-ratio window $[\text{ppmr}_{\min}, \text{ppmr}_{\max}]$ (a box kernel, rather than the log-normal kernel more commonly used elsewhere in the mizer framework):
+
+$$E(w,t) = \gamma(w)\left[\theta \int \phi(w/w')\,w'\,n(w',t)\,dw' \;+\; \rho \int \phi(w/w')\,w'\,n_R(w',t)\,dw'\right].$$
+
+The two coefficients that are the whole subject of this report enter here explicitly: $\theta$ ,in this single species model, effectively scales the strength of *cannibalism* and $\rho$ scales competition for the shared background resource $n_R$. Both are dimensionless multipliers on an otherwise identical encounter integral, so $\theta$ and $\rho$ are directly comparable in strength.
+
+In the calibration used throughout, the maximum intake rate is unbounded ($h \to \infty$ in the usual mizer parameterisation), so the feeding level $f(w,t) = E/(E+hw^n) \equiv 1$: consumption is never satiation-limited, and growth reduces to encountered intake minus a metabolic cost,
+
+$$g(w,t) = \alpha\, E(w,t) - k_s\, w^{p}.$$
+
+This is a simplification of the general mizer growth equation. It removes one of the two nonlinearities (satiation) that can otherwise stabilise a size spectrum, leaving the encounter-feedback loop as the sole source of the destabilising nonlinearity under study. In fact the calibration used here goes one step further: the metabolic-cost coefficient is set to $k_s=0$ (Table 1), so the second term vanishes identically and $g(w,t)=\alpha\,E(w,t)$ exactly, so growth is pure assimilated intake, with *no* explicit metabolic loss term active at all in this model.
+
+### 2.3 Mortality, fishing, and the resource
+
+Total mortality is additive, $\mu(w,t) = \mu_p(w,t) + \mu_0(w) + F(w,t)$: predation mortality (generated by every other size class's search effort, including cannibalistic self-predation weighted by the same $\theta$ as above), a calibrated background/senescence curve $\mu_0(w)$, and fishing mortality
+
+$$F(w,t) = q\,E_f(t)\,S(w), \qquad S(w) = \mathbb{1}[w \ge w_{\text{knife}}]$$
+
+for a knife-edge gear with cutoff $w_{\text{knife}}$ and catchability $q$; $E_f(t)$ is the externally-imposed fishing effort, held fixed at one of two values ($10$ or $0$) in every search in Section 3, where $\theta$ is the swept parameter instead.
+
+The background resource $n_R(w,t)$ does *not* follow mizer's default semichemostat dynamics. It instead solves a logistic equation with constant immigration,
+
+$$\frac{\partial n_R(w,t)}{\partial t} = i(w) + \big(r(w) - \mu_p(w,t)\big)\,n_R(w,t) - \frac{r(w)}{c(w)}\,n_R(w,t)^2,$$
+
+with replenishment rate $r(w)$, carrying capacity $c(w)=\kappa w^{-\lambda}$, and immigration $i(w)$, integrated by an exact closed-form solution of this Riccati-type equation at each time step rather than by an explicit- or semi-implicit-Euler discretisation. This was adopted for numerical accuracy under the small time steps the consumer-side scheme requires. This choice is the direct cause of a real limitation reported in Section 4: it makes the model incompatible with this project's available linearisation-based stability tools, which assume the standard semichemostat form.
+
+### 2.4 Numerical scheme and classification of long-run behaviour
+
+The weight axis is discretised on a log-spaced grid and the transport equation integrated with a finite-volume upwind scheme,
+
+$$n_i^{k+1}(w_j) = n_i^{k}(w_j) - \frac{\Delta t}{\Delta w_j}\Big[g^k(w_j)\,n^k(w_j) - g^k(w_{j-1})\,n^k(w_{j-1})\Big] - \Delta t\,\mu^k(w_j)\,n^k(w_j),$$
+
+first-order by default; a second-order (`tr_bdf2`) alternative reduces numerical diffusion at higher cost, and is important in this class of model specifically because that diffusion can damp a genuine limit cycle to a flat line, producing a false-negative for oscillation (Section 4).
+
+For a given parameter combination, the model is run forward and its long-run behaviour classified into one of three outcomes, following a formal, repeatable procedure rather than visual inspection:
+
+- **Convergence to a fixed point:** The run is broken into blocks of $t_{\text{per}}$ years; a distance functional between the states at the start and end of a block, $$D = \sum_w \big[\log n(w,t) - \log n(w,t+t_{\text{per}})\big]^2,$$ is compared against a tolerance; $D<\text{tol}$ classifies the block as converged.
+- **Convergence to a limit cycle:** If not converged, total biomass $B(t)=\int w\,n(w,t)\,dw$, sampled at fixed intervals, is tested for periodicity via its autocorrelation function: the first lag $\tau$ with autocorrelation exceeding $0.5$ is a candidate period. The relative amplitude $A=(\max-\min)/\text{mean}$ of $B(t)$ over each of three successive windows of length $\tau$ must exceed a floor $A_{\text{tol}}$ and agree with the other two windows to within 10%. This helps distinguish a genuine limit cycle from a slowly decaying spiral toward a fixed point, which loses amplitude from one period to the next.
+- **Neither:** If $t_{\max}$ is reached without either criterion firing (or a species' reproduction collapses toward zero, classified separately as extinction).
+
+Multistability / hysteresis at a given parameter value is tested directly rather than inferred from curve shape: the model is run to convergence twice, from two different histories at the *same* value of whichever parameter is being swept, chained up from below, and chained down from above, and the two converged states compared. A relative difference exceeding 5% is taken as evidence of two coexisting stable states, since both simulations converge at the identical parameter combination; there is no "steep but continuous" alternative reading available once both chains have themselves converged.
+
+This test does have one blind spot: the fixed-point criterion above only requires the distance between two states $t_{\text{per}}$ apart to fall below $\text{tol}$. Near a saddle-node fold specifically, the approach to a *single* true fixed point can slow algebraically (a "ghost" bottleneck), so a state can satisfy $D<\text{tol}$ while still genuinely drifting which would produce the appearance of two distinct converged states from a shared attractor, but is not real bistability. `projectToSteady()` separately reports a residual $R$ (the largest per-capita rate of change at the final state, from `getSteadyResidual()`), which is not subject to this blind spot and is used below as a direct check on this possibility. Section 3 applies this check with $\text{tol}$ tightened by three orders of magnitude ($10^{-5}$), $t_{\max}$ raised to $300$ years, and the first-order scheme above replaced by `tr_bdf2` at $dt=0.02$. This is large enough to be usable only because the second-order scheme carries much less numerical diffusion per step.
+
+### 2.5 Parameter values
+
+Table 1 gives the calibration behind every equation above. $\theta$ is the swept quantity in every search in Section 3; $\rho$ and $\text{effort}$ take a few different fixed values across those searches (Table 2); everything else, including $w_{\text{knife}}$, is held fixed throughout.
+
+| Symbol | Meaning | Value |
+|------------------------|------------------------|------------------------|
+| $w_{\min}$ | Minimum size | $3\times10^{-4}$ g |
+| $w_{\infty}$ | Asymptotic size | $66.5$ g |
+| $w_{\text{mat}}$ | Maturation size | $10$ g |
+| $\gamma$, $q$ | Search rate $\gamma(w)=\gamma\,w^{q}$: coefficient / exponent | $750$, $0.85$ |
+| $\alpha$ | Assimilation efficiency (growth eq., Section 2.2) | $0.1$ |
+| $k_s$ | Metabolic-cost coefficient (growth eq.) | $0$ -- inactive in this calibration |
+| $[\text{ppmr}_{\min},\text{ppmr}_{\max}]$ | Predator:prey mass-ratio window (box kernel $\phi$) | $[100,\ 30\,000]$ |
+| $\kappa$ | Resource carrying-capacity coefficient, $c(w)=\kappa w^{-\lambda}$ | $a_0e^{-6.9(\lambda-1)}\approx0.101$ |
+| $\lambda$ | Resource spectrum exponent | $2$ |
+| $r_0$, exponent | Replenishment rate $r(w)=r_0\,w^{\,\rho-1}$ | $r_0=10$, $\rho=0.85$ (so $r(w)=10\,w^{-0.15}$) |
+| $q$ | Catchability (fishing mortality, Section 2.3) | $1$ |
+| $w_{\text{knife}}$ | Gear cutoff | $10$ throughout Section 3 ($5$/$15$ used in earlier, related work not reported here) |
+| $\mu_0$, $\rho_b$ | Larval-mortality coefficient / exponent, $w\le w_s$ | $1$, $-0.25$ |
+| $w_s$, $\rho_s$ | Larval$\to$senescence transition size / senescence exponent, $w>w_s$ | $0.5$, $1$ |
+| $\mu_l$ | Coefficient of an additional mortality term, $\mu_l/(1+(w/w_l)^{\rho_l})$ | $0$ - inactive in this calibration |
+| $dt$ | Consumer-side integration time step | $0.001$ yr |
+| $dx$ | Log-weight grid spacing | $0.1$ |
+| $t_{\text{per}}$ | Convergence-check block length (Section 2.4) | $0.2$ yr |
+| $\text{tol}$, $t_{\max}$ | Default convergence tolerance / cap | $0.02$, $80$-$150$ yr (Section 4) |
+
+Two entries are worth reading alongside Section 2.2 rather than in isolation: $k_s=0$ means the growth equation there is not merely simplified but exact as written, $g=\alpha E$; and $\mu_l=0$ means the mortality curve $\mu_0(w)$ (Section 2.3) is in practice only the two-piece larval/senescence power law, not the three-term curve the general form allows for.
+
+### 2.6 Search parameters
+
+Table 2 lists every combination actually swept for Section 3, with the numerical settings used at each. All four searches share $w_{\text{knife}}=10$.
+
+| Search | Swept | Values | Held fixed | $\text{tol}$ | $t_{\max}$ | scheme, $dt$ |
+|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| Figure 1 | $\theta$ | $0.0,0.1,\dots,1.0$ | $\rho=5$, effort$=10$ | $0.02$ | $80$ | euler, $0.001$ |
+| Figure 2 | $\theta$ | $0.0,0.1,\dots,1.0$ | $\rho=5$, effort$=10$ | $10^{-5}$ | $300$ | `tr_bdf2`, $0.02$ |
+| Figure 3 | $\theta$ | $0.0,0.1,\dots,1.0$ | $\rho=1$, effort$=10$ | $10^{-5}$ | $300$ | `tr_bdf2`, $0.02$ |
+| Figure 4 | $(\theta,\rho)$ jointly | $(1,1)$, $(0.3,3)$ | effort$=0$ | $10^{-5}$ | $300$ | `tr_bdf2`, $0.02$ |
+
+Each $\theta$ sweep (Figures 1-3) is run in both directions, up from $\theta=0$, down from $\theta=1$, as two independent chains (Section 2.4). The Figure 2/3 grid was additionally re-run at effort$=0$ and effort$=25$ (not shown as figures): the fixed-point region collapsed the same way at both, but those two runs predate the window-average fix in Section 3.2, so the cycling-region result has only been directly re-checked at effort$=10$ (Figure 3).
+
+## 3. Results
+
+### 3.1 A candidate crossing fold
+
+![**Figure 1.** Cannibalism strength $\theta$ swept directly at fixed fishing effort ($\text{fish_effort}=10$) and $\rho=5$, under this project's default settings ($\text{tol}=0.02$, $t_{\max}=80$, first-order scheme, $dt=0.001$). The branches appear to cross near $\theta\approx0.6$, with the widest gap at an interior value rather than at either end.](../interesting_plots/day42_theta_bifurc_ir5.png)
+
+Sweeping $\theta$ itself, rather than the forcing, at fixed effort and $\rho=5$ under this project's default settings (Figure 1) produced a picture that looked like real structure: both branches classified as fixed points throughout, but with a *non-monotonic* gap between them, which widens to a maximum at an interior $\theta$ before narrowing again, and the two branches crossing, so neither history gave uniformly the higher state. The downward branch (built by starting at $\theta=1$ and relaxing cannibalism towards zero) reached $0.93$ at $\theta=0.3$; the upward branch (built from $\theta=0$ up) reached only $0.55$ at the same parameter combination. This is a $67\%$ gap. A structurally similar candidate had already appeared earlier in this project, under the same default settings, for a fold under fishing effort at fixed $\theta$.
+
+### 3.2 Neither survives a tightened test
+
+Both candidates were re-run with $\text{tol}$ tightened by three orders of magnitude to $10^{-5}$, $t_{\max}$ raised to $300$ years, and the numerical scheme switched to `tr_bdf2` at $dt=0.02$ (Section 2.4). Both collapsed.
+
+![**Figure 2.** The same sweep as Figure 1, $\theta$ at fixed fishing effort and $\rho=5$, under the tightened settings. The two branches are now within a few percent of each other everywhere, with the largest gap (at $\theta=0.5$) well inside the range plausibly explained by finite grid spacing rather than two distinct attractors. Residuals at every point are $R\approx10^{-4}$-$10^{-3}$, roughly two orders of magnitude smaller than the largest residuals recorded under the default settings.](../interesting_plots/tol_theta_bifurc_ir5.png)
+
+Figure 2 is not a subtler version of Figure 1; it is a different picture. Every point on both branches is now within about $5\%$ of its counterpart, with residuals of $10^{-4}$-$10^{-3}$ throughout. The $\theta=0.3$ point behind the "unlocking" claim now reads $0.70$ against $0.74$, not $0.55$ against $0.93$. The same test at $\rho=1$ shows the same collapse where a fixed point exists at all ($\theta=0,0.1$: agreement to within $0.1\%$), and the fishing-effort fold collapses the same way too. Both were the "ghost" artefact from Section 2.4: two chains each satisfying a loose stopping criterion while still slowly converging toward one shared fixed point, not two.
+
+A third apparent gap has since been resolved too. At $\rho=1$, once $\theta$ is large enough that the model cycles rather than settles ($\theta\gtrsim0.3$), the branches appeared to disagree by a real margin even under the tightened settings ($0.59$ against $0.42$, $\theta=0.4$-$0.9$). But `mean_total` there was still a single `getBiomass()` snapshot at whatever instant each chain stopped, which is fine for a fixed point, not for a cycle. Direct inspection of the $\theta=1$ trajectory showed a clean, regular limit cycle swinging between roughly $0.04$ and $0.60$ every $\sim9$ years; a single snapshot landing anywhere in that range is enough on its own to manufacture a second attractor from one.
+
+![**Figure 3.** The same $\rho=1$ sweep, with `mean_total` replaced by a proper mean over the settled window (last three cycle periods) and its min-max range shown as a ribbon, rather than a single end-of-run snapshot. The two branches now agree almost everywhere in the cycling region, ribbons overlapping.](../interesting_plots/tol_theta_bifurc_ir1.png)
+
+Figure 3 confirms this: with `mean_total` as a proper window-average, the branches agree to within about $1\%$ at every $\theta$ from $0.4$ to $1.0$ (e.g. $\theta=1.0$: $0.454$ against $0.455$, both spanning about $[0.04,0.60]$), against a $30\%$ gap under the single-snapshot reading. The downward branch at $\theta=1$ is still labelled `"not_converged"` by the cycle-detector, but its window-averaged biomass and amplitude match the confirmed cycle almost exactly. All three apparent bifurcations resolve to artefacts: two to a loose convergence tolerance, one to reading a single arbitrary phase of a limit cycle as if it were a converged value.
+
+### 3.3 A mechanistic result, checked and confirmed, with a correction
+
+A separate result concerns the *shape* of the converged solution rather than its stability. Under the default parameterisation ($\theta=1,\rho=1$) the biomass flux through the size spectrum was reported as unimodal, peaking sharply at $w=1$ - $2$g; combining a reduced cannibalism strength with an elevated resource-competition strength ($\theta=0.3,\rho=3$) resolves this into a distinctly bimodal profile, with a trough exactly where the single-peaked case peaks. With two other default-settings claims already having failed a tightened check, this one was re-examined the same way, at $\text{effort}=0$.
+
+The bimodal state checks out cleanly: `theta=0.3, rho=3` converges to a fixed point (residual $\approx7\times10^{-5}$), flux curve intact, both peaks and the trough between them. The default state does not check out as originally described: it does not converge to a fixed point at all under the tightened settings, but to a limit cycle (period $7.1$ years, relative amplitude $110\%$). Its flux is unimodal at every phase of that cycle, but the peak *travels*, sweeping from $w\approx0.06$g to beyond $w\approx20$g and back, height varying between roughly $0.28$ and $0.46$ g/year. The originally-reported peak ($w=1$-$2$g, $0.395$ g/year) is one arbitrary phase of that sweep, not a fixed property of the state. This is the same single-snapshot problem as Section 3.2, here affecting a description rather than a stability claim.
+
+![**Figure 4.** The bimodal `theta=0.3, rho=3` flux (orange, a genuine fixed point) against the full min-max envelope the default `theta=1, rho=1` state's flux visits across one complete cycle (grey band), both at $\text{effort}=0$. The orange curve's two peaks and central trough are not a phase of the grey envelope at any point.](../interesting_plots/tol_flux_check.png)
+
+Figure 4 is why the qualitative claim survives despite the correction: at no phase does the default state's flux go bimodal, so the two-peaked shape at $\theta=0.3,\rho=3$ is not one moment of the default's own natural variation. What does not survive is the framing. "Unimodal" described a moving target and the quoted peak location and height are illustrative of one phase, not a property of the default parameterisation. This check covered only the two extreme scenarios; the two intermediate ones from the original four-way comparison have not been re-examined.
+
+## 4. Limitations
+
+**No spectral confirmation, for either candidate:** The classification procedure in Section 2.4 is a forward-simulation, convergence-based test, and Section 3 shows directly why that matters: two candidates that satisfied it under default settings failed to survive a tightened version of the *same* test. Neither ever had a proof via linearisation behind it. The natural stronger test, computing the leading eigenvalue of the linearised one-step map at each fixed point, is unavailable here: it assumes the standard semichemostat resource dynamics, and Section 2.3's exact-step logistic solver does not satisfy that assumption. Absent that, "survived a tightened convergence test" is the strongest claim available in this framework, not a formal guarantee that no third, still-tighter test would also fail.
+
+**Sampled, not mapped, parameter space.** The two candidate bifurcations and the resolved cycling-region gap were evaluated at a coarse grid of $\theta$ values, at one or a few $(\rho, \text{effort})$ combinations; the flux result was checked at only two of its original four scenarios. That every candidate checked here failed, or in the flux result's case largely held up, does not establish that *no* other combination in this model would behave differently.
+
+**Single calibrated example.** All results are for one species calibration (anchovy); generality across other size-spectrum parameterisations is untested.
+
+## 5. Discussion
+
+The headline result of this report is negative, worth stating as plainly as the positive one it replaced: under this project's default numerical settings, the model produces convincing apparent bistability, such as a fold with hysteresis and a crossing structure with a clean "unlocking" story attached. But when actually checking the parameter combinations, none exists. Two distinct mechanisms were responsible, both generic rather than specific to one sweep. The first is a loose distance-based stopping criterion that cannot distinguish a genuine fixed point from a state still crawling slowly toward one, and that crawl is slowest, and easiest to mistake for convergence, exactly near a would-be fold. The second, found only once the first was controlled for, is subtler: reading a single instantaneous snapshot from a state correctly classified as a limit cycle and treating it as a settled value comparable across runs, when it is one arbitrary phase of a trajectory that can range over an order of magnitude within a cycle.
+
+The methodological implication runs beyond this report: a convergence-based classification is only as trustworthy as its stopping criterion, and a hysteresis test built on it inherits that weakness rather than curing it. Both problems were visible only once the summary statistic itself was interrogated directly, the residual profile in one case, the raw biomass trajectory in the other, rather than trusted because a convergence test returned a label.
+
+The same scrutiny applied to the one non-stability claim (Section 3.3) is instructive because it did *not* fail the same way. The structural claim, unimodal versus bimodal flux, held up: the bimodal state is a genuine fixed point, and no phase of the "default" state's own cycle produces its two-peaked shape. What the check caught instead was a labelling error one step earlier: a state assumed static because nobody had asked, which turned out to be exactly the kind of limit cycle Sections 3.1-3.2 spent their time learning to recognise. The lesson generalises: any single-state description in this class of model is provisional until convergence has actually been checked, not assumed from how the state was produced.
+
+## 6. Conclusion
+
+Four claims from this project were re-examined against tightened convergence settings, a second-order scheme, and, where relevant, a summary statistic that respects cyclic dynamics: a fold under fishing effort at fixed $\theta$, a fold that appeared to cross itself when $\theta$ was swept, a persistent up/down gap in the cycling region, and a claimed unimodal-to-bimodal shift in the biomass flux. The first three did not survive, two were convergence-tolerance artefacts, the third a single arbitrary phase of one limit cycle misread as two attractors, and none represents genuine bistability at the combinations tested. The fourth survived in substance: the bimodal flux state is a genuine fixed point with a shape the comparison state never produces at any point in its own dynamics. But that comparison state was itself mischaracterised, assumed static when it is a limit cycle, making its originally-quoted peak location and height an artefact of sampling, not a property of the state. Every claim eventually trusted here was trusted only after its underlying state was checked for convergence directly, never because a summary number had been produced.
+
+## Appendix: Code
+
+Five short excerpts connect the equations above directly to the implementation; the full model and sweep code is in `finding_jams/40_changed_mort_experiments.R`, `finding_jams/43_experiments.R`, `finding_jams/tol_theta_sweep_check.R` (Figures 1-3, Section 3.2) and `finding_jams/tol_flux_check.R` (Figure 4, Section 3.3).
+
+Where $\theta$ and $\rho$ enter the model (Section 2.2's $\theta$ and $\rho$ coefficients):
+
+``` r
+interaction_matrix(params) <- interaction_val               # theta
+species_params(params)$interaction_resource <- interaction_resource_val  # rho
+```
+
+The classification procedure (Section 2.4), a single call carrying out convergence-to-fixed-point, limit-cycle detection, and the extinction check together:
+
+``` r
+p_run <- projectToSteady(params, t_per = 0.2, t_max = 150, dt = p2$dt,
+                         effort = fish_level, progress_bar = FALSE)
+conv  <- attr(p_run, "convergence")   # $type: "steady" | "cycle" | "not_converged" | "extinction"
+```
+
+The hysteresis test (Section 2.4), comparing two histories converged at the same parameter value - here, $\theta$ itself swept directly (Figures 1-3), which requires rebuilding the model at each new $\theta$ and transplanting the previous step's converged abundance state across, since $\theta$ is not a plain simulation argument the way effort is:
+
+``` r
+params_th <- anchovy_params(theta_new, ir_val, knife_edge_size = ke_val)
+initialN(params_th)         <- initialN(previous_converged_params)
+initialNResource(params_th) <- initialNResource(previous_converged_params)
+p_run <- projectToSteady(params_th, effort = fish_level, ...)
+```
+
+The tightened check (Section 3.2), the only change from the call above: tolerance three orders of magnitude smaller, more than triple the integration time allowed, and the second-order scheme in place of the default:
+
+``` r
+p_run <- projectToSteady(params_th, effort = fish_level, tol = 1e-5, t_max = 300,
+                         dt = 0.02, method = "tr_bdf2", ...)
+```
+
+The window-average fix (Section 3.2, Figure 3): `return_sim = TRUE` keeps the trajectory instead of only the final state, so biomass can be summarised over a settled tail window:
+
+``` r
+sim <- projectToSteady(params_th, effort = fish_level, return_sim = TRUE, ...)
+conv <- attr(sim, "convergence")
+biomass_ts <- rowSums(getBiomass(sim))
+window_n <- if (conv$type == "cycle") round(3 * conv$period / t_per) else length(biomass_ts) %/% 2
+b_tail <- tail(biomass_ts, window_n)
+mean(b_tail); range(b_tail)   # replaces the single-instant getBiomass(p_run)
+```
+
+## References
+
+- Datta, S., Delius, G. W., & Law, R. (2011). A jump-growth model for predator-prey dynamics: derivation and application to marine ecosystems. *Bulletin of Mathematical Biology* \[citation details to verify before submission\].
+- Scott, F., Blanchard, J. L., & Andersen, K. H. (2014). mizer: An R package for multispecies, trait-based and community size spectrum modelling. *Methods in Ecology and Evolution*, 5(10), 1121-1125.

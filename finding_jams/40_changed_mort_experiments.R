@@ -2678,6 +2678,76 @@ for (ir_val in c(1, 5)) {
 }
 
 ################################################################################
+# Section 22: Section 19's own fishing-effort bifurcation diagrams exist for
+# theta=0/0.3/0.7 at knife_edge=10 (day42_bifurc_ke10_th00/03/07.png) but not
+# theta=1 -- the overnight Section 18 sweep has only completed theta=1's own
+# ir=1/knife_edge=5 combination so far, not knife_edge=10 at all. Rather than
+# wait for the rest of Section 18's grid (which also covers knife_edge=5/15,
+# not needed for this specific gap), this fills in just the 4 missing
+# theta=1/knife_edge=10 combinations (interaction_resource = 1, 2, 3, 5),
+# reusing Section 18's own run_chained_sweep()/ir_seq_bistab/
+# effort_seq_bistab and appending to the SAME day41_bistability_sweep.csv
+# Section 19 already reads -- rerunning Section 19 afterwards should produce
+# day42_bifurc_ke10_th10.png with no other changes needed.
+#
+# NOT run here -- same reasons as everything else in this file today.
+################################################################################
+
+for (ir_val in ir_seq_bistab) {
+  ke_val <- 10
+  theta_val <- 1
+
+  params_bistab <- anchovy_params(theta_val, ir_val, knife_edge_size = ke_val)
+
+  params_unfished_bistab <- projectToSteady(params_bistab, t_per = 0.2, t_max = 150,
+                                            dt = p2$dt, effort = 0, progress_bar = FALSE)
+  total_unfished_bistab <- unname(getBiomass(params_unfished_bistab))
+
+  up_df <- run_chained_sweep(params_unfished_bistab, effort_seq_bistab, "up")
+
+  params_high_bistab <- projectToSteady(params_unfished_bistab, t_per = 0.2, t_max = 150,
+                                        dt = p2$dt, effort = max(effort_seq_bistab),
+                                        progress_bar = FALSE)
+  down_df <- run_chained_sweep(params_high_bistab, rev(effort_seq_bistab), "down")
+
+  cell_df <- bind_rows(up_df, down_df) %>%
+    mutate(theta = theta_val, interaction_resource = ir_val, knife_edge_size = ke_val,
+          fraction_of_unfished = mean_total / total_unfished_bistab)
+
+  write.table(cell_df, bistab_path, sep = ",", row.names = FALSE,
+             col.names = !file.exists(bistab_path), append = file.exists(bistab_path))
+  cat(sprintf("Section 22: theta=1, ir=%.2f, ke=10 done.\n", ir_val))
+}
+
+cat("Section 22: theta=1/knife_edge=10 complete -- rerun Section 19 to get day42_bifurc_ke10_th10.png.\n")
+
+################################################################################
+# Section 23: does Section 20's own "mean hides a real interior peak in the
+# max envelope" finding (theta=0.3, ir=1, ke=10) generalise across theta, or
+# is it specific to that one point? ir=1/ke=10 cycles at every effort level
+# tested for theta=0.3, 0.7 AND 1 (Section 18's own rows confirm this --
+# theta=0 is the only one of the four that stays steady throughout, already
+# covered by day42_yield_env_th0.png). This reruns Section 20's own
+# run_yield_envelope_sweep()/plot_yield_envelope() unchanged, just at
+# theta=0.7 and theta=1, same ir=1/ke=10/fine effort grid, so the three
+# resulting figures are directly comparable to the existing theta=0.3 one.
+#
+# theta=0.7 was already dispatched once live this session and had not
+# finished within this tool's own wait window when checked -- it may
+# complete on its own regardless (R keeps running even after the calling
+# tool gives up waiting), so check for day42_yield_env_th07.png/.csv before
+# rerunning that half to avoid duplicating a still-in-flight run.
+################################################################################
+
+env_th07_ir1 <- run_yield_envelope_sweep(0.7, 1, 10, effort_seq = effort_seq_fine_env)
+write.csv(env_th07_ir1, file.path(plot_dir, "day42_yield_env_th07_ir1.csv"), row.names = FALSE)
+save_plot(plot_yield_envelope(env_th07_ir1, "theta=0.7, ir=1, ke=10"), "day42_yield_env_th07.png")
+
+env_th10_ir1 <- run_yield_envelope_sweep(1, 1, 10, effort_seq = effort_seq_fine_env)
+write.csv(env_th10_ir1, file.path(plot_dir, "day42_yield_env_th10_ir1.csv"), row.names = FALSE)
+save_plot(plot_yield_envelope(env_th10_ir1, "theta=1, ir=1, ke=10"), "day42_yield_env_th10.png")
+
+################################################################################
 # What's Next
 ################################################################################
 #

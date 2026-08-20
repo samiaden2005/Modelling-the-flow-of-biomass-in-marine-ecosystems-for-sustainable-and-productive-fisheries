@@ -42,7 +42,7 @@ The only cycling that does show up at `knife_edge=10` in the data so far is the 
 
 **What this isn't yet:** a finished result. `theta=1` hasn't run at any gear width. The bistability numbers above are a coarse 5-effort-point grid, not the kind of fine bracket Section 8 used to confirm the original `theta=0` case -- some of the flagged `knife_edge=10` points could be steep-but-continuous rather than genuinely bistable once looked at more closely, the same distinction Section 8 itself had to rule out by hand. And the absence of `theta=0` cycling at `knife_edge=10` is an absence in a five-point effort grid, not a proof it can never happen there -- a finer grid could still turn up a narrow window this coarse sweep stepped over.
 
-**The code.** Both figures come from `finding_jams/40_changed_mort_experiments.R`'s own Section 19, which reads `day41_bistability_sweep.csv` fresh and plots `fraction_of_unfished` against `fish_level` for each `theta`, filtered to `knife_edge_size=10` and faceted by `interaction_resource`, with point shape carrying `conv_type`:
+**The code.** These figures come from `finding_jams/40_changed_mort_experiments.R`'s own Section 19, which reads `day41_bistability_sweep.csv` fresh and plots `fraction_of_unfished` against `fish_level` for each `theta`, filtered to `knife_edge_size=10` and faceted by `interaction_resource`, with point shape carrying `conv_type`:
 
 ```{r day42-bifurcation-plot, eval=FALSE}
 plot_bifurcation_theta <- function(theta_val, ke_val = 10) {
@@ -66,7 +66,86 @@ plot_bifurcation_theta <- function(theta_val, ke_val = 10) {
 }
 ```
 
-`theta=1` will render the same way once its own 11 remaining combinations finish -- rerunning this loop is the only step needed, nothing else in the function depends on which `theta` values happen to be in `bistab_df` yet.
+`theta=1` will render the same way once `knife_edge=10` has data for it -- Section 22 (queued, not yet run) fills in just the 4 missing `theta=1/knife_edge=10` combinations rather than waiting on the rest of the overnight grid, and rerunning this loop afterwards is the only step needed.
+
+------------------------------------------------------------------------
+
+## Section 2: Yield Envelopes -- A Hidden Peak Inside the Cycle
+
+Every yield number in this project so far, back through Sections 17c/17d/18, comes from reading `getYield()` off a single settled `MizerParams` object. That's exact for a genuine fixed point, but for a limit cycle it's only the yield at whatever arbitrary phase the run happened to stop on -- not the cycle's own range. Section 20 fixes that directly: `return_sim = TRUE` keeps the whole trajectory, so the min and max yield over the settled window can be read off properly, on a fine `fish_level` grid (`0` to `100`, step `5`) for two `knife_edge=10` cases -- `theta=0/interaction_resource=1` (a fold, no cycling anywhere) and `theta=0.3/interaction_resource=1` (cycling at every effort level tested).
+
+![theta=0, ir=1, ke=10: every point is steady, so the min-max ribbon is essentially zero width and the line alone tells the story -- a genuine interior peak of 0.053 g/year at fish_level=10, a dip to ~0.0225 around fish_level=35-40, then a slow, real rise back to 0.0258 by fish_level=100. This sharpens Section 17c's own single-point read of the same shape (peak 0.0514 at fish_level=9, minimum 0.0223 at fish_level=30, 0.0272 at fish_level=100) onto a proper fine grid instead of 11 hand-picked points.](../interesting_plots/day42_yield_env_th0.png)
+
+![theta=0.3, ir=1, ke=10: cycling from fish_level=5 up (fish_level=0 doesn't fully converge within this section's t_max=100 -- expected, since this project has repeatedly found the unfished reference itself can take close to 30 years to settle, and yield is trivially 0 there regardless). The mean line (solid) looks unremarkable -- a smooth, saturating rise from 0.044 to 0.080, no visible peak, exactly the "monotonic, no peak" verdict this project has reached for several theta/ir combinations using single-point yield. The max envelope tells a completely different story.](../interesting_plots/day42_yield_env_th03.png)
+
+The second figure is the real finding here. The mean-yield line alone would say this regime never turns over in `[0,100]` -- consistent with, and by the same method as, several other "no peak found" verdicts already in this project's own record (Day 41's own What's Next items 0/0b flagged exactly this pattern for `interaction_resource=1.3` and `theta=0.5/interaction_resource=2`). But the **max**-yield envelope climbs far more steeply than the mean, wobbles, and peaks at `fish_level≈85-90` around `0.55` g/year -- nearly 7x the mean at that point -- before dropping back to `0.46` by `fish_level=100`. That is a genuine interior peak, entirely invisible to the single-point-per-effort method used everywhere else in this project. The **min**-yield envelope, meanwhile, stays low and barely moves (`0.014` to `0.023` across the whole range) -- in this regime, extra fishing effort does almost nothing for the worst moments of the cycle; every bit of extra catch it buys shows up at the cycle's peak, not its baseline. Practically, a fishery timed to harvest during the population's peak-biomass phase would see a real sustainable-yield-like optimum around `fish_level=85-90` that a naive mean-yield analysis completely misses.
+
+**The code**, from Section 20:
+
+```{r day42-yield-envelope, eval=FALSE}
+run_yield_envelope_sweep <- function(theta_val, ir_val, ke_val = 10,
+                                     effort_seq = seq(0, 100, by = 5),
+                                     t_per = 0.2, t_max = 100) {
+  current <- anchovy_params(theta_val, ir_val, knife_edge_size = ke_val)
+  bind_rows(lapply(effort_seq, function(fl) {
+    sim <- projectToSteady(current, t_per = t_per, t_max = t_max, dt = p2$dt,
+                           effort = fl, return_sim = TRUE, progress_bar = FALSE)
+    current <<- finalParams(sim)
+    conv <- attr(sim, "convergence")
+
+    yield_ts <- rowSums(getYield(sim))
+    n <- length(yield_ts)
+    window_n <- if (identical(conv$type, "cycle") && !is.na(conv$period)) {
+      min(n, max(2, round(3 * conv$period / t_per)))
+    } else {
+      max(2, n %/% 2)
+    }
+    tail_ts <- utils::tail(yield_ts, window_n)
+
+    data.frame(fish_level = fl, conv_type = conv$type, conv_years = conv$years,
+              conv_period = conv$period, yield_mean = mean(tail_ts),
+              yield_min = min(tail_ts), yield_max = max(tail_ts))
+  }))
+}
+```
+
+**What this isn't yet:** only two examples, both `interaction_resource=1` at `knife_edge=10` -- one fold, one cycle. Whether the same "mean hides a real peak" pattern holds for the strongly bistable `interaction_resource=5` cases from Section 1, or for cycling at narrower gear, is untested. The `fish_level=0` row reading `conv_type="not_converged"` is a boundary artefact of this section's own `t_max=100` (shorter than the `150` used elsewhere in this file) rather than a real finding -- yield is exactly `0` there by definition regardless of convergence, so it doesn't affect anything above.
+
+------------------------------------------------------------------------
+
+## Section 3: Bifurcation Diagrams in Theta -- A Crossing Fold
+
+Section 1's own bistability numbers came from discrete `theta ∈ {0, 0.3, 0.7}` points -- three snapshots, not a curve. Section 21 sweeps `theta` itself as the bifurcation parameter instead of `fish_level`, holding `knife_edge=10` and `fish_level=10` fixed (chosen because Section 1's own figures showed the widest up/down gaps sitting at low effort). Because `theta` is baked into the model's own interaction matrix rather than being a plain argument to `projectToSteady()`, each step rebuilds `anchovy_params()` at the new `theta` and carries the previous step's converged abundance state across via `initialN()<-`/`initialNResource()<-`, chaining across a `theta` step the same way Section 18 chains across an effort step. Two examples, chosen directly from Section 1's own discrete points: `interaction_resource=1` (the cycling case) and `interaction_resource=5` (the strongest bistable case found so far).
+
+![interaction_resource=1, ke=10, fish_level=10: biomass roughly halves already between theta=0 and theta=0.1 (0.90-1.13 down to ~0.40, both directions), a much sharper drop than the coarse {0, 0.3, 0.7} grid suggested. Cycling switches on at theta=0.2, right where the up branch (orange) shows an unexplained dip to ~0.28 before recovering and crossing above the down branch by theta=0.3. From 0.3 to 1.0 both branches cycle, roughly parallel, up consistently ~5-11% above down -- a real but much smaller gap than Section 1's own text implied when it called the two branches "essentially on top of each other."](../interesting_plots/day42_theta_bifurc_ir1.png)
+
+![interaction_resource=5, ke=10, fish_level=10: every point is steady -- no cycling anywhere in this theta range. The down branch (green) starts highest, stays roughly flat through theta=0.3, then declines steadily to meet the up branch at theta=1. The up branch (orange) does the opposite: it drops to its own minimum at theta=0.3, then climbs to a peak around theta=0.7-0.8, before falling to meet down at theta=1. The two branches cross around theta≈0.6 -- "up" and "down" do not correspond to a fixed high state and low state, only to which direction the chain came from.](../interesting_plots/day42_theta_bifurc_ir5.png)
+
+The `interaction_resource=5` panel is the headline result. It confirms what Section 1's own three-point grid could only flag as a possibility -- a genuine non-monotonic bistability, peaking hard at `theta=0.3` (`0.93` vs `0.55`, a 70% relative gap, matching what the coarse grid already picked out as the standout candidate) rather than shrinking steadily as cannibalism strength rises. The crossing itself is worth being precise about: because `theta` is the actual swept axis here, any nonzero gap between the two chains at the *same* `theta` value is direct, immediate evidence of two coexisting stable states at that exact parameter combination -- there is no "maybe it's just a steep continuous decline between grid points" ambiguity to rule out separately, the way there was for the `fish_level` sweeps (Day 41 Section 8's own fine-bracket check existed precisely to close that gap). Both chains here were run to convergence at literally the same `(theta, interaction_resource, knife_edge, fish_level)`; a nonzero difference can only mean coexisting attractors.
+
+The `interaction_resource=1` panel's `theta=0.2` dip is flagged deliberately rather than explained away: it could be a genuine transient or resonance effect right at the Hopf-like onset of cycling, or it could be a convergence artefact of this section's `t_max=80` cap catching the trajectory mid-transition from a decaying spiral to a settled cycle. Nothing in the data collected so far distinguishes those two readings.
+
+**The code**, from Section 21:
+
+```{r day42-theta-bifurcation, eval=FALSE}
+run_theta_chain <- function(ir_val, ke_val, fl, theta_seq, t_per = 0.2, t_max = 80) {
+  current <- anchovy_params(theta_seq[1], ir_val, knife_edge_size = ke_val)
+  bind_rows(lapply(theta_seq, function(th) {
+    params_th <- anchovy_params(th, ir_val, knife_edge_size = ke_val)
+    initialN(params_th) <- initialN(current)
+    initialNResource(params_th) <- initialNResource(current)
+    p_run <- projectToSteady(params_th, t_per = t_per, t_max = t_max, dt = p2$dt,
+                             effort = fl, progress_bar = FALSE)
+    current <<- p_run
+    conv <- attr(p_run, "convergence")
+    data.frame(theta = th, mean_total = unname(getBiomass(p_run)),
+              mean_yield = unname(getYield(p_run)), conv_type = conv$type,
+              conv_years = conv$years)
+  }))
+}
+```
+
+**What this isn't yet:** one effort level, one gear width, two `interaction_resource` values. The crossing shape found at `interaction_resource=5` could look different at other efforts or gear widths, and nothing here is a `getStability()`-based confirmation -- same convergence-based hysteresis standard used throughout this project, not the stronger spectral-radius one.
 
 ------------------------------------------------------------------------
 
@@ -81,3 +160,6 @@ plot_bifurcation_theta <- function(theta_val, ke_val = 10) {
     b.  Once confirmed, run the peaks/troughs threshold schedule on that regime's own Constant-effort MSY -- the first floor in this project that would mean what the schedule comparisons have always been trying to test.
     c.  The second-order-scheme diagnostic sweep (Day 41's own item 7) -- does `tr_bdf2`'s incompatibility with this project's custom resource dynamics show up everywhere, or only in specific regions.
     d.  Map the lower edge of the original `theta=0/ir=1/ke=10` bistable window, and get a `getStability()`-based confirmation of the fold rather than relying on convergence-time/hysteresis alone.
+6.  **Verify the `theta=0.2, interaction_resource=1` dip (Section 3)** with a finer grid around it (`theta = 0.12, 0.15, 0.18, 0.22, 0.25`) and a longer `t_max` -- distinguish a genuine transient/resonance effect at the onset of cycling from a convergence artefact of the `t_max=80` cap used there.
+7.  **Extend Section 20's min/max-envelope technique to the cases that matter most for it**: `interaction_resource=5` (the strongest bistable case, both branches), and at least one narrower-gear cycling case, to see whether the "mean hides a real interior peak" pattern found at `theta=0.3/ir=1/ke=10` is general or specific to that one point. If it is general, several "no peak found" verdicts already on record in this project (Day 41's own items 0/0b) were reached with a method now known to be capable of missing exactly this kind of peak.
+8.  **Run Section 22** (queued, not yet executed) to complete the `theta=1/knife_edge=10` fishing-effort bifurcation diagram, and extend Section 21's theta-sweep to other `fish_level`/`knife_edge` combinations to see whether the `interaction_resource=5` crossing-fold shape is a fixed-effort curiosity or holds more generally.
